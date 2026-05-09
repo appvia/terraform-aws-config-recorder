@@ -8,7 +8,12 @@ output "lambda_function_arn" {
   value       = module.lambda.lambda_function_arn
 }
 
-output "ssm_parameter_name" {
-  description = "Name of the SSM parameter holding the JSON configuration"
-  value       = aws_ssm_parameter.recorder_config.name
+output "lambda_failure_alarm_arn" {
+  description = "ARN of the CloudWatch alarm which triggers on Lambda errors"
+  value       = try(aws_cloudwatch_metric_alarm.lambda_errors[0].arn, null)
+}
+
+output "secret_manager_name" {
+  description = "Name of the Secret Manager secret holding the JSON configuration"
+  value       = aws_secretsmanager_secret.config.name
 }

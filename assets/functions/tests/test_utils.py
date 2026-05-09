@@ -1,6 +1,12 @@
 """Unit tests for `utils.py`."""
 
+import sys
 import unittest
+from pathlib import Path
+
+recorder_dir = Path(__file__).resolve().parents[1]
+if str(recorder_dir) not in sys.path:
+    sys.path.insert(0, str(recorder_dir))
 
 from utils import (
     is_boolean,

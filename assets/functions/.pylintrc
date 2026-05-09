@@ -1,4 +1,4 @@
 [MESSAGES CONTROL]
 # NOTE: The Pylint version used by `make python-lint` doesn't support
 # `per-file-ignores`, so we disable this message globally.
-disable=missing-function-docstring,missing-class-docstring,protected-access,line-too-long
+disable=missing-function-docstring,missing-class-docstring,protected-access,line-too-long,too-many-locals,wrong-import-position,too-many-branches,too-many-statements

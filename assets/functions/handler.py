@@ -4,19 +4,25 @@ Handler for the AWS Config recorder configurator Lambda function.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 from typing import Any, Literal
 
-from types import DesiredConfig
-
 import boto3
+
+from client import get_config_client
+from config_types import AccountConfig, DesiredConfig
 from logger import logger
+from organizations import list_accounts
+from utils import merge_string_lists
 
 # Initialize the AWS clients
-ssm = boto3.client("ssm")  # pylint: disable=no-member
+secretsmanager = boto3.client("secretsmanager")  # pylint: disable=no-member
 # Initialize the AWS Config client
 config = boto3.client("config")  # pylint: disable=no-member
+# Initialize the AWS Organizations client
+organizations_client = boto3.client("organizations")  # pylint: disable=no-member
 
 
 def merge_configurations(
@@ -36,83 +42,88 @@ def merge_configurations(
     """
 
     # Make a copy of the existing configuration
-    merged = existing.copy()
-    # Set the recording frequency in the merged configuration
-    merged.get("recordingMode", {}).set("recordingFrequency", desired.mode)
+    merged = copy.deepcopy(existing)
+    # Set the recording frequency in the merged configuration (only if provided)
+    recording_mode = merged.setdefault("recordingMode", {})
+    if desired.mode:
+        recording_mode["recordingFrequency"] = desired.mode
 
     # If the desired configuration has resources, then set the resources in the merged configuration
+    recording_group = merged.setdefault("recordingGroup", {})
     if desired.resources and len(desired.resources) > 0:
-        merged.get("recordingGroup", {}).set("resourceTypes", desired.resources)
+        recording_group["resourceTypes"] = merge_string_lists(
+            existing=recording_group.get("resourceTypes"),
+            desired=desired.resources,
+        )
+
     if desired.exclude_resources and len(desired.exclude_resources) > 0:
-        merged.get("recordingGroup", {}).get("exclusionByResourceTypes", {}).set(
-            "resourceTypes", desired.exclude_resources
+        exclusion = recording_group.setdefault("exclusionByResourceTypes", {})
+        exclusion["resourceTypes"] = merge_string_lists(
+            existing=exclusion.get("resourceTypes"),
+            desired=desired.exclude_resources,
         )
 
     # If we have overrides, then set the overrides in the merged configuration
     if desired.overrides and len(desired.overrides) > 0:
+        recording_mode_overrides = recording_mode["recordingModeOverrides"] = []
         for override in desired.overrides:
-            merged.get("recordingGroup", {}).get("overrides", {}).append(
-                {
-                    "description": override.description,
-                    "recordingFrequency": override.override_type,
-                    "resource": override.resource,
-                }
-            )
-
-    # Get a json diff of the merged configuration and the existing configuration
-    diff = json.dumps(merged, sort_keys=True) - json.dumps(existing, sort_keys=True)
-    if diff:
-        logger.info(
-            "Configuration has changed",
-            extra={
-                "action": "merge_configurations",
-                "diff": diff,
-            },
-        )
+            recording_mode_overrides.append(override.get_override())
 
     # Check if the merged configuration is different from the existing configuration
     changed = merged != existing
+    if changed:
+        logger.info(
+            "Configuration has changes to apply",
+            extra={
+                "action": "merge_configurations",
+                "current": existing,
+                "desired": merged,
+            },
+        )
 
     return changed, merged
 
 
 def load_configuration(
-    ssm_parameter_name: str,
-) -> DesiredConfig:
+    secret_manager_name: str,
+) -> AccountConfig:
     """
-    Load the desired configuration from SSM and parse it into a DesiredConfig object
+    Load the desired configuration from Secret Manager and parse it
+    into a DesiredConfig object
 
     Args:
-        ssm_parameter_name: The name of the SSM parameter to load the configuration from
+        secret_manager_name: The name of the Secret Manager secret to
+        load the configuration from.
 
     Returns:
-        A DesiredConfig object
-
-    Raises:
-        ValueError: If the SSM parameter is not found or is not a valid JSON object
+        An AccountConfig object containing the desired configuration.
     """
 
     logger.info(
-        "Loading desired configuration from SSM",
+        "Loading desired configuration from Secret Manager",
         extra={
             "action": "load_configuration",
-            "ssm_parameter_name": ssm_parameter_name,
+            "secret_manager_name": secret_manager_name,
         },
     )
 
-    # Get the parameter from SSM
-    param = ssm.get_parameter(Name=ssm_parameter_name)
-    # Get the raw value from the parameter
-    raw_value = param["Parameter"]["Value"]
+    # Get the parameter from Secret Manager
+    param = secretsmanager.get_secret_value(SecretId=secret_manager_name)
+    # Get the raw value from the Secret Manager secret
+    raw_value = param["SecretString"]
     # Load the raw configuration into a DesiredConfig object
-    return DesiredConfig.load(json.loads(raw_value))
+    return AccountConfig.load(json.loads(raw_value))
 
 
-def get_recorder(recorder_name: str) -> tuple[str, str, dict[str, Any]]:
+def get_recorder(
+    client: boto3.client,
+    recorder_name: str,
+) -> tuple[str, bool, dict[str, Any]]:
     """
     Get the recorder configuration from AWS Config
 
     Args:
+        client:        The Boto3 client to use to get the recorder configuration
         recorder_name: The name of the recorder
 
     Returns:
@@ -130,7 +141,7 @@ def get_recorder(recorder_name: str) -> tuple[str, str, dict[str, Any]]:
         )
 
         # List the existing recorders
-        recorders = config.describe_configuration_recorders(
+        recorders = client.describe_configuration_recorders(
             ConfigurationRecorderNames=[recorder_name]
         ).get("ConfigurationRecorders", [])
         if not recorders:
@@ -147,7 +158,7 @@ def get_recorder(recorder_name: str) -> tuple[str, str, dict[str, Any]]:
             )
 
         # Get the status of the existing recorder
-        status = config.describe_configuration_recorder_status(
+        status = client.describe_configuration_recorder_status(
             ConfigurationRecorderNames=[recorder_name]
         ).get("ConfigurationRecordersStatus", [])
         recording = bool(status and status[0].get("recording"))
@@ -163,7 +174,7 @@ def get_recorder(recorder_name: str) -> tuple[str, str, dict[str, Any]]:
             },
         )
 
-        # Return the role ARN, recording status, and existing recorder configuration
+        # Return the role ARN, recording status, and existing configuration
         return role_arn, recording, existing
 
     except Exception as e:
@@ -176,6 +187,33 @@ def get_recorder(recorder_name: str) -> tuple[str, str, dict[str, Any]]:
             },
         )
         raise e
+
+
+def _base_regions_from_event_and_env(event: dict[str, Any]) -> list[str]:
+    """
+    Regions from the invocation event or RECORDER_REGIONS (module var.regions).
+    Blank entries are dropped. If nothing remains, fall back to the Lambda
+    runtime region so var.regions = [] matches "current region" behaviour.
+    """
+
+    raw = event.get("regions")
+    parts: list[str]
+    if raw is not None:
+        if isinstance(raw, list):
+            parts = [str(x).strip() for x in raw]
+        else:
+            parts = [p.strip() for p in str(raw).split(",")]
+    else:
+        parts = [p.strip() for p in os.environ.get("RECORDER_REGIONS", "").split(",")]
+
+    regions = [p for p in parts if p]
+    if not regions:
+        fallback = (
+            os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or ""
+        ).strip()
+        if fallback:
+            regions = [fallback]
+    return regions
 
 
 def lambda_response(
@@ -210,9 +248,8 @@ def lambda_handler(event: dict[str, Any], _: Any) -> dict[str, Any]:
     Handler for the AWS Config recorder configurator Lambda function.
 
     This function is responsible for:
-    - Loading the desired configuration from SSM
-    - Applying the configuration to the AWS Config recorder
-    - Starting or stopping the recorder based on the configuration
+    - Loading the desired configuration from Secrets Manager
+    - Applying the configuration to the AWS Config recorder in member accounts
     """
 
     # Get the recorder name from the environment variable
@@ -221,100 +258,231 @@ def lambda_handler(event: dict[str, Any], _: Any) -> dict[str, Any]:
     log_level = (
         event.get("log_level") or os.environ.get("LOG_LEVEL") or "INFO"
     ).upper()
-    # Get the SSM parameter name from the environment variable
-    ssm_parameter_name = os.environ.get("SSM_PARAMETER_NAME", "").strip()
+    # Get the dry run mode from the environment variable
+    dry_run = (
+        event.get("dry_run")
+        or os.environ.get("ENABLE_DRY_MODE", "false").upper() == "TRUE"
+    )
+    base_regions = _base_regions_from_event_and_env(event)
+
+    # Get the Secret Manager name from the environment variable
+    secret_manager_name = os.environ.get("SECRET_MANAGER_NAME", "").strip()
 
     try:
         logger.info(
             "Starting Lambda handler",
             extra={
                 "action": "lambda_handler",
+                "dry_run": dry_run,
                 "event": event,
                 "log_level": log_level,
                 "recorder_name": recorder_name,
-                "ssm_parameter_name": ssm_parameter_name,
+                "base_regions": base_regions,
+                "secret_manager_name": secret_manager_name,
             },
         )
         # Set the log level
         logger.setLevel(log_level)
-        # Ensure the recorder name and SSM parameter name are set
+        # Ensure the recorder name and secret name are set
         if not recorder_name:
             raise ValueError("RECORDER_NAME environment variable is required")
-        if not ssm_parameter_name:
-            raise ValueError("SSM_PARAMETER_NAME environment variable is required")
+        if not secret_manager_name:
+            raise ValueError("SECRET_MANAGER_NAME environment variable is required")
 
-        # Get the desired configuration from SSM
-        desired = load_configuration(ssm_parameter_name)
+        # Get the desired configuration from Secret Manager
+        desired_config = load_configuration(secret_manager_name)
+        # Load all the accounts from the AWS Organizations API
+        accounts = list_accounts(client=organizations_client)
 
-        # Get the existing recorder configuration (role ARN, recording status, and configuration)
-        role_arn, recording, configuration = get_recorder(recorder_name)
-        # If the recorder is not recording, then we ignore configuration changes
-        if not recording:
-            logger.warning(
-                "Recorder is not recording, ignoring configuration changes",
-                extra={
-                    "action": "lambda_handler",
-                    "recorder_name": recorder_name,
-                },
+        any_applied = False
+        skipped_not_recording = False
+        skipped_no_change = False
+
+        # Iterate over the accounts and apply the configuration to the recorder
+        for key, desired in desired_config.accounts.items():
+            effective_regions = (
+                list(desired.filter.regions)
+                if desired.filter.regions
+                else list(base_regions)
+            )
+            # Iterate over the regions and apply the configuration to the recorder
+            for region in effective_regions:
+                # If the account is not in the regions, then we skip the configuration
+                # Get the account name from the desired configuration
+                account_name = desired.filter.name
+                # Ensure the account name is set
+                if not account_name:
+                    logger.warning(
+                        "Account name not found, skipping configuration",
+                        extra={
+                            "action": "lambda_handler",
+                            "account_name": account_name,
+                            "region": region,
+                            "account_key": key,
+                        },
+                    )
+                    continue
+
+                logger.info(
+                    "Ensuring recorder configuration is applied to account",
+                    extra={
+                        "action": "lambda_handler",
+                        "account_name": account_name,
+                        "region": region,
+                    },
+                )
+
+                # Get the account from the AWS Organizations API
+                account = accounts.get(account_name)
+                if not account:
+                    logger.warning(
+                        "Account not found, skipping configuration",
+                        extra={
+                            "action": "lambda_handler",
+                            "account_name": account_name,
+                            "region": region,
+                        },
+                    )
+                    continue
+
+                # Assume into the AWSControlTowerExecution role for the account, and
+                # return a config boto3 client
+                config_client = get_config_client(
+                    account_id=account.id,
+                    role_arn=f"arn:aws:iam::{account.id}:role/AWSControlTowerExecution",
+                    region=region,
+                )
+
+                # Get the existing recorder configuration (role ARN, recording status, and configuration)
+                role_arn, recording, configuration = get_recorder(
+                    client=config_client,
+                    recorder_name=recorder_name,
+                )
+                # If the recorder is not recording, then we ignore configuration changes
+                if not recording:
+                    logger.warning(
+                        "Recorder is not recording, ignoring configuration changes",
+                        extra={
+                            "action": "lambda_handler",
+                            "recorder_name": recorder_name,
+                        },
+                    )
+                    logger.warning(
+                        "Recorder is not recording, ignoring configuration changes",
+                        extra={
+                            "action": "lambda_handler",
+                            "account_name": account_name,
+                            "recorder_name": recorder_name,
+                            "region": region,
+                        },
+                    )
+                    skipped_not_recording = True
+                    continue
+
+                # Merge the desired configuration with the current configuration
+                changed, merged = merge_configurations(desired, configuration)
+
+                # If the configuration did not change, then we skip the configuration
+                if not changed:
+                    logger.info(
+                        "Configuration did not change, skipping configuration changes",
+                        extra={
+                            "action": "lambda_handler",
+                            "recorder_name": recorder_name,
+                        },
+                    )
+
+                    logger.info(
+                        "Configuration did not change, skipping configuration changes",
+                        extra={
+                            "action": "lambda_handler",
+                            "account_name": account_name,
+                            "recorder_name": recorder_name,
+                            "region": region,
+                        },
+                    )
+
+                    skipped_no_change = True
+                    continue
+
+                # Apply the recorder configuration
+                logger.info(
+                    "Changes detected, applying recorder configuration",
+                    extra={
+                        "action": "lambda_handler",
+                        "recorder_name": recorder_name,
+                        "merged": merged,
+                    },
+                )
+
+                if not dry_run:
+                    # Put the recorder configuration
+                    config_client.put_configuration_recorder(
+                        ConfigurationRecorder={
+                            "name": recorder_name,
+                            "roleARN": role_arn,
+                            "recordingGroup": merged.get("recordingGroup"),
+                            "recordingMode": merged.get("recordingMode"),
+                        }
+                    )
+                    any_applied = True
+                    logger.info(
+                        "Successfully applied recorder configuration",
+                        extra={
+                            "action": "lambda_handler",
+                            "account_name": account_name,
+                            "dry_run": dry_run,
+                            "recorder_name": recorder_name,
+                            "region": region,
+                        },
+                    )
+                else:
+                    logger.info(
+                        "Dry run mode enabled, skipping recorder configuration",
+                        extra={
+                            "action": "lambda_handler",
+                            "current": configuration,
+                            "desired": merged,
+                            "recorder_name": recorder_name,
+                            "region": region,
+                        },
+                    )
+
+                logger.info(
+                    "Successfully applied recorder configuration with region",
+                    extra={
+                        "action": "lambda_handler",
+                        "account_name": account_name,
+                        "recorder_name": recorder_name,
+                        "region": region,
+                    },
+                )
+
+        if any_applied:
+            return lambda_response(
+                message="Successfully applied recorder configuration to all regions",
+                recorder_name=recorder_name,
+                status="ok",
             )
 
+        if skipped_not_recording and not skipped_no_change:
             return lambda_response(
                 message="Recorder is not recording, ignoring configuration changes",
                 recorder_name=recorder_name,
                 status="skipped",
             )
 
-        # Merge the desired configuration with the current configuration
-        changed, merged = merge_configurations(desired, configuration)
-
-        # If the configuration did not change, then we skip the configuration
-        if not changed:
-            logger.info(
-                "Configuration did not change, skipping configuration changes",
-                extra={
-                    "action": "lambda_handler",
-                    "recorder_name": recorder_name,
-                },
-            )
-
+        if skipped_no_change:
             return lambda_response(
                 message="Configuration did not change, skipping configuration changes",
                 recorder_name=recorder_name,
                 status="skipped",
             )
 
-        # Apply the recorder configuration
-        logger.info(
-            "Changes detected, applying recorder configuration",
-            extra={
-                "action": "lambda_handler",
-                "recorder_name": recorder_name,
-                "merged": merged,
-            },
-        )
-
-        # Put the recorder configuration
-        config.put_configuration_recorder(
-            ConfigurationRecorder={
-                "name": recorder_name,
-                "roleARN": role_arn,
-                "recordingGroup": merged.get("recordingGroup"),
-                "recordingMode": merged.get("recordingMode"),
-            }
-        )
-
-        logger.info(
-            "Successfully applied recorder configuration",
-            extra={
-                "action": "lambda_handler",
-                "recorder_name": recorder_name,
-            },
-        )
-
         return lambda_response(
-            message="Successfully applied recorder configuration",
+            message="No applicable configuration changes",
             recorder_name=recorder_name,
-            status="ok",
+            status="skipped",
         )
 
     except Exception as e:

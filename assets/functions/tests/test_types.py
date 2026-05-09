@@ -1,21 +1,21 @@
-"""Unit tests for `types.py`."""
+"""Unit tests for `config_types.py`."""
 
 import importlib.util
-import sys
 import unittest
-from pathlib import Path
+
+from tests.test_support import ensure_recorder_dir_on_path
 
 
-def _load_recorder_types_module():
+def _load_recorder_config_types_module():
     """
-    Load recorder/types.py as a module without colliding with stdlib `types`.
+    Load recorder/config_types.py as a module.
     """
-    recorder_dir = Path(__file__).resolve().parents[1]
-    if str(recorder_dir) not in sys.path:
-        sys.path.insert(0, str(recorder_dir))
+    recorder_dir = ensure_recorder_dir_on_path()
 
-    types_path = recorder_dir / "types.py"
-    spec = importlib.util.spec_from_file_location("recorder_types", types_path)
+    config_types_path = recorder_dir / "config_types.py"
+    spec = importlib.util.spec_from_file_location(
+        "recorder_config_types", config_types_path
+    )
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -24,7 +24,7 @@ def _load_recorder_types_module():
 
 class TestOverride(unittest.TestCase):
     def test_override_load_success(self) -> None:
-        t = _load_recorder_types_module()
+        t = _load_recorder_config_types_module()
         for override_type in ("CONTINUOUS", "DAILY"):
             with self.subTest(override_type=override_type):
                 o = t.Override.load(
@@ -34,7 +34,7 @@ class TestOverride(unittest.TestCase):
                 self.assertEqual(o.override_type, override_type)
 
     def test_override_load_validation_errors(self) -> None:
-        t = _load_recorder_types_module()
+        t = _load_recorder_config_types_module()
 
         cases = [
             ({}, "resources must be a list of strings"),
@@ -63,23 +63,33 @@ class TestOverride(unittest.TestCase):
                     t.Override.load(raw)
 
 
+class TestAccountFilter(unittest.TestCase):
+    def test_account_filter_regions_null_or_missing_uses_empty_list(self) -> None:
+        t = _load_recorder_config_types_module()
+        for raw in (
+            {"name": "Dev", "regions": None},
+            {"name": "Dev"},
+        ):
+            with self.subTest(raw=raw):
+                f = t.AccountFilter.load(raw)
+                self.assertEqual(f.name, "Dev")
+                self.assertEqual(f.regions, [])
+
+    def test_account_filter_regions_empty_list(self) -> None:
+        t = _load_recorder_config_types_module()
+        f = t.AccountFilter.load({"name": "Dev", "regions": []})
+        self.assertEqual(f.name, "Dev")
+        self.assertEqual(f.regions, [])
+
+    def test_account_filter_regions_invalid_type_raises(self) -> None:
+        t = _load_recorder_config_types_module()
+        with self.assertRaisesRegex(ValueError, "regions must be a list of strings"):
+            t.AccountFilter.load({"name": "Dev", "regions": "eu-west-2"})
+
+
 class TestDesiredConfig(unittest.TestCase):
-    def test_desired_config_is_frequency_and_mode_helpers(self) -> None:
-        t = _load_recorder_types_module()
-        dc = t.DesiredConfig()
-
-        self.assertIs(t.is_frequency("CONTINUOUS"), True)
-        self.assertIs(t.is_frequency("DAILY"), True)
-        self.assertIs(t.is_frequency("weekly"), False)
-        self.assertIs(t.is_frequency(None), False)
-
-        self.assertIs(dc.is_recording_mode("CONTINUOUS"), True)
-        self.assertIs(dc.is_recording_mode("DAILY"), True)
-        self.assertIs(dc.is_recording_mode("weekly"), False)
-        self.assertIs(dc.is_recording_mode(None), False)  # type: ignore[arg-type]
-
     def test_desired_config_load_success(self) -> None:
-        t = _load_recorder_types_module()
+        t = _load_recorder_config_types_module()
         for override_type in ("CONTINUOUS", "DAILY"):
             with self.subTest(override_type=override_type):
                 dc = t.DesiredConfig.load(
@@ -103,11 +113,10 @@ class TestDesiredConfig(unittest.TestCase):
                 self.assertEqual(dc.overrides[0].override_type, override_type)
 
     def test_desired_config_load_validation_errors(self) -> None:
-        t = _load_recorder_types_module()
+        t = _load_recorder_config_types_module()
 
         cases = [
             (None, "configuration must be an object"),
-            ({}, "resource_filter.mode must be a recording mode"),
             (
                 {
                     "mode": "WEEKLY",
@@ -159,6 +168,46 @@ class TestDesiredConfig(unittest.TestCase):
             with self.subTest(raw=raw, err=err):
                 with self.assertRaisesRegex(ValueError, err):
                     t.DesiredConfig.load(raw)  # type: ignore[arg-type]
+
+    def test_desired_config_load_allows_partial_configuration(self) -> None:
+        t = _load_recorder_config_types_module()
+        dc = t.DesiredConfig.load({"overrides": []})
+        self.assertIsNone(dc.mode)
+        self.assertEqual(dc.resources, [])
+        self.assertEqual(dc.exclude_resources, [])
+        self.assertEqual(dc.overrides, [])
+
+
+class TestAccountConfig(unittest.TestCase):
+    def test_account_config_load_success(self) -> None:
+        t = _load_recorder_config_types_module()
+        cfg = t.AccountConfig.load(
+            {
+                "dev": {
+                    "filter": {"name": "Dev", "regions": ["eu-west-2"]},
+                    "mode": "DAILY",
+                },
+                "prod": {
+                    "filter": {"name": "Prod", "regions": ["eu-west-2"]},
+                    "resources": ["AWS::S3::Bucket"],
+                },
+            }
+        )
+        self.assertIn("dev", cfg.accounts)
+        self.assertEqual(cfg.accounts["dev"].filter.name, "Dev")
+        self.assertEqual(cfg.accounts["dev"].mode, "DAILY")
+        self.assertIn("prod", cfg.accounts)
+        self.assertEqual(cfg.accounts["prod"].filter.name, "Prod")
+        self.assertEqual(cfg.accounts["prod"].resources, ["AWS::S3::Bucket"])
+
+    def test_account_config_load_validation_errors(self) -> None:
+        t = _load_recorder_config_types_module()
+        with self.assertRaisesRegex(ValueError, "configuration must be an object"):
+            t.AccountConfig.load(None)  # type: ignore[arg-type]
+        with self.assertRaisesRegex(
+            ValueError, "configuration entries must be objects"
+        ):
+            t.AccountConfig.load({"dev": "nope"})  # type: ignore[arg-type]
 
 
 if __name__ == "__main__":

@@ -1,30 +1,51 @@
 variable "config" {
-  description = "The configuration JSON (as an object) to store in SSM and apply to the recorder"
-  type = object({
-    # Indicates if the configuration is enabled (controls the schedule nothing else)
-    enable = optional(bool, true)
+  description = <<-EOT
+    Desired recorder settings per logical block, stored as JSON in Secrets Manager. Each map entry is applied
+    to the member account whose Organizations account name matches `filter.name` (see README).
+  EOT
+  type = map(object({
+    # The account filter to filter the accounts to apply the configuration to
+    filter = object({
+      # Name of the account
+      name = string
+      # If set, only these regions; if null or [], use var.regions (or Lambda region when var.regions is empty)
+      regions = optional(list(string), null)
+    })
     # The mode to apply to the recorder (i.e. DAILY or CONTINUOUS)
-    mode = optional(string, "CONTINUOUS")
+    mode = optional(string, null)
     # The resources to include in the recorder
-    resources = optional(list(string), [])
+    resources = optional(list(string), null)
     # The resources to exclude from the recorder
-    exclude_resources = optional(list(string), [])
+    exclude_resources = optional(list(string), null)
     # The overrides to apply to the recorder
     overrides = optional(list(object({
       # A human-readable description of the override
-      description = optional(string, "Override for resource types")
+      description = string
       # The resource to apply the override to
       resources = list(string)
       # The type of override to apply (DAILY or CONTINUOUS)
-      override_type = optional(string, "DAILY")
-    })), [])
-  })
+      override_type = string
+    })), null)
+  }))
   default = {}
+}
 
-  validation {
-    condition     = contains(["CONTINUOUS", "DAILY"], var.config.mode)
-    error_message = "mode must be either CONTINUOUS or DAILY"
-  }
+variable "enable" {
+  description = "Whether to enable the config recorder configuration"
+  type        = bool
+  default     = true
+}
+
+variable "enable_debug" {
+  description = "Whether to enable debug mode (which will print debug logs to the CloudWatch logs)"
+  type        = bool
+  default     = false
+}
+
+variable "enable_dry_run" {
+  description = "Whether to enable dry run mode (which will not make any changes to the recorder configuration)"
+  type        = bool
+  default     = false
 }
 
 variable "schedule_expression" {
@@ -41,7 +62,7 @@ variable "lambda_memory_size" {
 variable "lambda_runtime" {
   description = "The runtime for the Lambda"
   type        = string
-  default     = "python3.14"
+  default     = "python3.13"
 }
 
 variable "lambda_timeout" {
@@ -62,10 +83,25 @@ variable "recorder_name" {
   default     = "aws-controltower-BaselineConfigRecorder"
 }
 
-variable "ssm_parameter_name" {
-  description = "The name of the SSM parameter to store the recorder configuration JSON"
+variable "regions" {
+  description = <<-EOT
+    Default region list for every `config` entry whose `filter.regions` is omitted or empty. Passed to the
+    Lambda as `RECORDER_REGIONS`. When empty, the function uses the Lambda runtime region (`AWS_REGION`).
+  EOT
+  type        = list(string)
+  default     = []
+}
+
+variable "secret_manager_name" {
+  description = "Name of the Secrets Manager secret that stores the recorder configuration JSON"
   type        = string
-  default     = "/lz/aws-config/recorder/config"
+  default     = "/lz/aws-config/config"
+}
+
+variable "sns_topic_arn" {
+  description = "Optional SNS topic ARN to notify when the Lambda alarm fires"
+  type        = string
+  default     = null
 }
 
 variable "tags" {
@@ -73,4 +109,3 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
-
