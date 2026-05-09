@@ -37,7 +37,7 @@ Cross-account access is constrained in two ways:
 
 The `config` input is a map. Each value describes how to tune the recorder for **one Organizations member account**:
 
-- **`filter.name`** (required): must match the **account name** returned by Organizations (`ListAccounts`), not the account ID.
+- **`filter.names`** (required): list of **account names** as returned by Organizations (`ListAccounts`), not account IDs. The Lambda applies this map entry to **every** member account whose name appears in the list (exact string match). Use a single-element list for one account, or several names when the same recorder settings should apply to multiple accounts from one block. An empty list matches no accounts.
 - **`filter.regions`** (optional): when set to a **non-empty** list, the Lambda applies that block **only** in those regions and **does not** use `var.regions` for that entry. When omitted, null, or `[]`, that entry uses the module default regions below.
 
 The **top-level keys** in `config` (for example `devops`, `workloads`) are arbitrary labels for Terraform and become keys in the JSON secret; they are not sent to AWS.
@@ -47,7 +47,7 @@ The **top-level keys** in `config` (for example `devops`, `workloads`) are arbit
 | Input | Role |
 |--------|------|
 | **`var.regions`** | Default region list for every `config` entry that does not set `filter.regions`. Passed to the Lambda as `RECORDER_REGIONS` (comma-separated). If you leave it as the default `[]`, the function uses the **Lambda runtime region** (`AWS_REGION`) for those entries—typically the region where you deploy the stack. |
-| **`filter.regions`** | Per-entry override: **replaces** `var.regions` for that map entry only, so you can target one region for one account and a broader list for another. |
+| **`filter.regions`** | Per-entry override: **replaces** `var.regions` for that map entry only (for all accounts listed in that entry’s `filter.names`), so you can target one region for one group of accounts and a broader list for another. |
 
 ### Usage examples
 
@@ -67,7 +67,7 @@ module "config_recorder" {
   config = {
     workloads = {
       filter = {
-        name = "Workloads" # Must match the Organizations account name
+        names = ["Workloads"] # Must match Organizations account name(s)
       }
       mode = "DAILY"
       exclude_resources = [
@@ -97,7 +97,7 @@ module "config_recorder" {
   config = {
     security = {
       filter = {
-        name    = "Security"
+        names   = ["Security"]
         regions = ["eu-west-2"]
       }
       mode      = "CONTINUOUS"
@@ -125,18 +125,33 @@ module "config_recorder" {
 
   config = {
     development = {
-      filter = { name = "Development" }
+      filter = { names = ["Development"] }
       mode   = "DAILY"
     }
     production = {
       filter = {
-        name    = "Production"
+        names   = ["Production"]
         regions = ["eu-west-2", "us-east-1"]
       }
       mode = "DAILY"
     }
   }
 }
+```
+
+#### Example 4: One config block, several account names
+
+Use multiple entries in `filter.names` when the same mode, resource lists, and overrides should apply to more than one member account (each name must still match Organizations exactly).
+
+```hcl
+  config = {
+    shared_daily = {
+      filter = {
+        names = ["Devops", "PlatformSandbox"]
+      }
+      mode = "DAILY"
+    }
+  }
 ```
 
 ### Notes / assumptions
@@ -157,7 +172,7 @@ module "config_recorder" {
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
 | <a name="input_schedule_expression"></a> [schedule\_expression](#input\_schedule\_expression) | The EventBridge schedule expression used to invoke the Lambda | `string` | n/a | yes |
-| <a name="input_config"></a> [config](#input\_config) | Desired recorder settings per logical block, stored as JSON in Secrets Manager. Each map entry is applied<br/>to the member account whose Organizations account name matches `filter.name` (see README). | <pre>map(object({<br/>    # The account filter to filter the accounts to apply the configuration to<br/>    filter = object({<br/>      # Name of the account<br/>      name = string<br/>      # If set, only these regions; if null or [], use var.regions (or Lambda region when var.regions is empty)<br/>      regions = optional(list(string), null)<br/>    })<br/>    # The mode to apply to the recorder (i.e. DAILY or CONTINUOUS)<br/>    mode = optional(string, null)<br/>    # The resources to include in the recorder<br/>    resources = optional(list(string), null)<br/>    # The resources to exclude from the recorder<br/>    exclude_resources = optional(list(string), null)<br/>    # The overrides to apply to the recorder<br/>    overrides = optional(list(object({<br/>      # A human-readable description of the override<br/>      description = string<br/>      # The resource to apply the override to<br/>      resources = list(string)<br/>      # The type of override to apply (DAILY or CONTINUOUS)<br/>      override_type = string<br/>    })), null)<br/>  }))</pre> | `{}` | no |
+| <a name="input_config"></a> [config](#input\_config) | Desired recorder settings per logical block, stored as JSON in Secrets Manager. Each map entry is applied<br/>to the member account whose Organizations account name matches `filter.name` (see README). | <pre>map(object({<br/>    # The account filter to filter the accounts to apply the configuration to<br/>    filter = object({<br/>      # Name of the account<br/>      names = list(string)<br/>      # If set, only these regions; if null or [], use var.regions (or Lambda region when var.regions is empty)<br/>      regions = optional(list(string), null)<br/>    })<br/>    # The mode to apply to the recorder (i.e. DAILY or CONTINUOUS)<br/>    mode = optional(string, null)<br/>    # The resources to include in the recorder<br/>    resources = optional(list(string), null)<br/>    # The resources to exclude from the recorder<br/>    exclude_resources = optional(list(string), null)<br/>    # The overrides to apply to the recorder<br/>    overrides = optional(list(object({<br/>      # A human-readable description of the override<br/>      description = string<br/>      # The resource to apply the override to<br/>      resources = list(string)<br/>      # The type of override to apply (DAILY or CONTINUOUS)<br/>      override_type = string<br/>    })), null)<br/>  }))</pre> | `{}` | no |
 | <a name="input_enable"></a> [enable](#input\_enable) | Whether to enable the config recorder configuration | `bool` | `true` | no |
 | <a name="input_enable_debug"></a> [enable\_debug](#input\_enable\_debug) | Whether to enable debug mode (which will print debug logs to the CloudWatch logs) | `bool` | `false` | no |
 | <a name="input_enable_dry_run"></a> [enable\_dry\_run](#input\_enable\_dry\_run) | Whether to enable dry run mode (which will not make any changes to the recorder configuration) | `bool` | `false` | no |
