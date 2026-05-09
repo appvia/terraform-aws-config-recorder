@@ -65,6 +65,8 @@ class TestMergeConfigurations(unittest.TestCase):
     def test_merge_configuration_sets_frequency_resources_and_overrides(self) -> None:
         desired = self.config_types.DesiredConfig(
             mode="DAILY",
+            enable_all_supported=False,
+            enable_global_resources=False,
             resources=["AWS::S3::Bucket"],
             exclude_resources=["AWS::IAM::Role"],
             overrides=[
@@ -120,11 +122,12 @@ class TestMergeConfigurations(unittest.TestCase):
             },
         )
 
-    def test_merge_configuration_merges_and_dedupes_resources_exclusions_and_overrides(
-        self,
-    ) -> None:
+    def test_merge_configuration_replaces_resources_exclusions_and_overrides(self) -> None:
+        """Desired lists and overrides replace the corresponding existing fields entirely."""
         desired = self.config_types.DesiredConfig(
             mode=None,
+            enable_all_supported=False,
+            enable_global_resources=False,
             resources=["AWS::S3::Bucket", "AWS::EC2::Instance", "AWS::S3::Bucket"],
             exclude_resources=["AWS::IAM::Role", "AWS::KMS::Key", "AWS::IAM::Role"],
             overrides=[
@@ -151,9 +154,9 @@ class TestMergeConfigurations(unittest.TestCase):
                 "recordingFrequency": "DAILY",
                 "recordingModeOverrides": [
                     {
-                        "description": "Existing override kept",
+                        "description": "Stale override not kept",
                         "recordingFrequency": "CONTINUOUS",
-                        "resourceTypes": ["AWS::EC2::Instance"],
+                        "resourceTypes": ["AWS::Lambda::Function"],
                     }
                 ],
             },
@@ -162,20 +165,20 @@ class TestMergeConfigurations(unittest.TestCase):
         changed, merged = self.handler.merge_configurations(desired, existing)
 
         self.assertIs(changed, True)
-        # Existing first, then desired additions; duplicates removed
         self.assertEqual(
             merged["recordingGroup"]["resourceTypes"],
-            ["AWS::Lambda::Function", "AWS::S3::Bucket", "AWS::EC2::Instance"],
+            ["AWS::S3::Bucket", "AWS::EC2::Instance", "AWS::S3::Bucket"],
         )
         self.assertEqual(
             merged["recordingGroup"]["exclusionByResourceTypes"]["resourceTypes"],
-            ["AWS::KMS::Key", "AWS::IAM::Role"],
+            ["AWS::IAM::Role", "AWS::KMS::Key", "AWS::IAM::Role"],
         )
         self.assertEqual(
             merged["recordingGroup"]["recordingStrategy"]["useOnly"],
             "EXCLUSION_BY_RESOURCE_TYPES",
         )
         self.assertIs(merged["recordingGroup"]["allSupported"], False)
+        self.assertEqual(merged["recordingMode"]["recordingFrequency"], "DAILY")
         self.assertEqual(
             merged["recordingMode"]["recordingModeOverrides"],
             [
@@ -195,6 +198,8 @@ class TestMergeConfigurations(unittest.TestCase):
     def test_merge_configuration_adds_values_when_existing_has_none(self) -> None:
         desired = self.config_types.DesiredConfig(
             mode=None,
+            enable_all_supported=False,
+            enable_global_resources=False,
             resources=["AWS::S3::Bucket"],
             exclude_resources=["AWS::IAM::Role"],
             overrides=[
@@ -234,7 +239,7 @@ class TestMergeConfigurations(unittest.TestCase):
             ],
         )
 
-    def test_merge_configuration_does_not_create_duplicate_overrides(self) -> None:
+    def test_merge_configuration_desired_overrides_replace_existing_order(self) -> None:
         desired = self.config_types.DesiredConfig(
             mode=None,
             overrides=[
@@ -246,14 +251,19 @@ class TestMergeConfigurations(unittest.TestCase):
             ],
         )
         existing = {
-            "recordingGroup": {},
+            "recordingGroup": {
+                "allSupported": True,
+                "includeGlobalResourceTypes": True,
+                "resourceTypes": [],
+                "exclusionByResourceTypes": {"resourceTypes": []},
+                "recordingStrategy": {"useOnly": "ALL_SUPPORTED_RESOURCE_TYPES"},
+            },
             "recordingMode": {
                 "recordingFrequency": "DAILY",
                 "recordingModeOverrides": [
                     {
                         "description": "Dup override",
                         "recordingFrequency": "DAILY",
-                        # Intentionally different order to ensure dedupe is stable
                         "resourceTypes": ["AWS::EC2::Instance", "AWS::S3::Bucket"],
                     }
                 ],
@@ -262,8 +272,7 @@ class TestMergeConfigurations(unittest.TestCase):
 
         changed, merged = self.handler.merge_configurations(desired, existing)
 
-        # Desired overrides replace existing overrides entirely; the resulting
-        # list contains only the desired override (with its own resource order).
+        # Overrides come only from desired; resource type order follows desired.
         self.assertIs(changed, True)
         self.assertEqual(
             merged["recordingMode"]["recordingModeOverrides"],
@@ -276,18 +285,19 @@ class TestMergeConfigurations(unittest.TestCase):
             ],
         )
 
-    def test_merge_configuration_does_not_create_duplicates_when_desired_only_repeats_existing(
-        self,
-    ) -> None:
+    def test_merge_configuration_unchanged_when_merged_equals_existing(self) -> None:
         desired = self.config_types.DesiredConfig(
             mode=None,
-            resources=["AWS::S3::Bucket", "AWS::S3::Bucket"],
-            exclude_resources=["AWS::KMS::Key", "AWS::KMS::Key"],
+            enable_all_supported=False,
+            enable_global_resources=False,
+            resources=["AWS::S3::Bucket"],
+            exclude_resources=["AWS::KMS::Key"],
             overrides=[],
         )
         existing = {
             "recordingGroup": {
                 "allSupported": False,
+                "includeGlobalResourceTypes": False,
                 "resourceTypes": ["AWS::S3::Bucket"],
                 "exclusionByResourceTypes": {"resourceTypes": ["AWS::KMS::Key"]},
                 "recordingStrategy": {"useOnly": "EXCLUSION_BY_RESOURCE_TYPES"},
@@ -306,6 +316,7 @@ class TestMergeConfigurations(unittest.TestCase):
     def test_merge_configuration_returns_unchanged_when_values_match(self) -> None:
         desired = self.config_types.DesiredConfig(
             mode="DAILY",
+            enable_global_resources=False,
             overrides=[
                 self.config_types.Override(
                     description="Record EC2 continuously",
@@ -336,8 +347,6 @@ class TestMergeConfigurations(unittest.TestCase):
 
         changed, merged = self.handler.merge_configurations(desired, existing)
 
-        # Desired overrides replace existing overrides; when they match exactly
-        # the merged configuration is unchanged.
         self.assertIs(changed, False)
         self.assertEqual(
             merged["recordingMode"]["recordingModeOverrides"],
@@ -362,13 +371,28 @@ class TestMergeConfigurations(unittest.TestCase):
             ],
         )
         existing = {
-            "recordingGroup": {},
-            "recordingMode": {"recordingFrequency": "DAILY"},
+            "recordingGroup": {
+                "allSupported": True,
+                "includeGlobalResourceTypes": True,
+                "resourceTypes": [],
+                "exclusionByResourceTypes": {"resourceTypes": []},
+                "recordingStrategy": {"useOnly": "ALL_SUPPORTED_RESOURCE_TYPES"},
+            },
+            "recordingMode": {
+                "recordingFrequency": "DAILY",
+                "recordingModeOverrides": [
+                    {
+                        "description": "Record EC2 continuously",
+                        "recordingFrequency": "CONTINUOUS",
+                        "resourceTypes": ["AWS::EC2::Instance"],
+                    }
+                ],
+            },
         }
 
         changed, merged = self.handler.merge_configurations(desired, existing)
 
-        self.assertIs(changed, True)
+        self.assertIs(changed, False)
         self.assertEqual(merged["recordingMode"]["recordingFrequency"], "DAILY")
         self.assertEqual(
             merged["recordingMode"]["recordingModeOverrides"][0]["recordingFrequency"],
@@ -378,7 +402,11 @@ class TestMergeConfigurations(unittest.TestCase):
     def test_merge_configuration_resets_resources_when_not_provided(
         self,
     ) -> None:
-        desired = self.config_types.DesiredConfig(mode="DAILY", resources=[])
+        desired = self.config_types.DesiredConfig(
+            mode="DAILY",
+            resources=[],
+            enable_global_resources=False,
+        )
         existing = {
             "recordingGroup": {"resourceTypes": ["AWS::S3::Bucket"]},
             "recordingMode": {"recordingFrequency": "CONTINUOUS"},
@@ -401,6 +429,7 @@ class TestMergeConfigurations(unittest.TestCase):
     ) -> None:
         desired = self.config_types.DesiredConfig(
             mode=None,
+            enable_all_supported=False,
             exclude_resources=["AWS::IAM::Role"],
         )
         existing = {
@@ -428,6 +457,7 @@ class TestMergeConfigurations(unittest.TestCase):
     ) -> None:
         desired = self.config_types.DesiredConfig(
             mode=None,
+            enable_global_resources=False,
             exclude_resources=[],
         )
         existing = {

@@ -4,7 +4,7 @@ Types for the AWS Config recorder configurator Lambda function.
 
 from dataclasses import dataclass, field
 from typing import Any
-from utils import is_string_list, is_list, is_frequency
+from utils import is_list, is_string_list, is_frequency
 from logger import logger
 
 
@@ -82,8 +82,14 @@ class AccountFilter:
         if not isinstance(raw, dict):
             raise ValueError("filter must be an object")
 
+        # Empty filter: defaults (e.g. nested under DesiredConfig with no filter key)
+        if not raw:
+            return cls()
+
         # Ensure the names is a list of strings
         names_raw = raw.get("names")
+        if names_raw is None:
+            raise ValueError("names must be a list of strings")
         if not is_string_list(names_raw):
             raise ValueError("names must be a list of strings")
 
@@ -106,12 +112,26 @@ class DesiredConfig:
     mode: str | None = None
     # The mode to apply to the recorder (i.e specific resource types or all resources)
     resources: list[str] = field(default_factory=list)
+    # Enable all supported resource types
+    enable_all_supported: bool = True
+    # Enable global resource types
+    enable_global_resources: bool = True
     # Resource to exclude from the recorder
     exclude_resources: list[str] = field(default_factory=list)
     # The overrides to apply to the recorder
     overrides: list[Override] = field(default_factory=list)
     # The account filter to apply the configuration to
     filter: AccountFilter = field(default_factory=AccountFilter)
+
+    def get_overrides(self) -> list[dict[str, Any]]:
+        """
+        Get the overrides for the recorder
+
+        Returns:
+            A list of override dictionaries
+        """
+
+        return [o.get_override() for o in self.overrides]
 
     @classmethod
     def load(cls, raw: dict[str, Any]) -> "DesiredConfig":
@@ -132,55 +152,37 @@ class DesiredConfig:
                 "raw": raw,
             },
         )
-        if not isinstance(raw, dict):
+
+        if raw is None or not isinstance(raw, dict):
             raise ValueError("configuration must be an object")
 
-        # Get the mode, resources, exclude_resources, and overrides from the raw configuration
-        mode = raw.get("mode")
-        resources_raw = raw.get("resources")
-        exclude_resources_raw = raw.get("exclude_resources")
-        overrides_raw = raw.get("overrides")
-        filter_raw = raw.get("filter")
+        mode_raw = raw.get("mode")
+        if mode_raw is not None and not is_frequency(mode_raw):
+            raise ValueError("resource_filter.mode must be a recording mode")
 
-        desired_filter = AccountFilter.load(filter_raw)
-        desired_mode: str | None = None
-        desired_resources: list[str] = []
-        desired_exclude_resources: list[str] = []
-        desired_overrides: list[Override] = []
+        resources_raw = raw.get("resources", [])
+        if not is_list(resources_raw):
+            raise ValueError("resources must be a list")
 
-        # Ensure the mode is a valid frequency when provided
-        if mode:
-            if not is_frequency(mode):
-                # Preserve existing error message expected by tests/users
-                raise ValueError("resource_filter.mode must be a recording mode")
-            desired_mode = str(mode)
+        exclude_raw = raw.get("exclude_resources", [])
+        if not is_list(exclude_raw):
+            raise ValueError("exclude_resources must be a list")
 
-        # Ensure the resources is a list of strings
-        if resources_raw:
-            if not is_string_list(resources_raw):
-                raise ValueError("resources must be a list")
-            desired_resources = [str(r) for r in resources_raw]
-
-        # Ensure the exclude_resources is a list of strings
-        if exclude_resources_raw:
-            if not is_string_list(exclude_resources_raw):
-                raise ValueError("exclude_resources must be a list")
-            desired_exclude_resources = [str(r) for r in exclude_resources_raw]
-
-        if overrides_raw:
-            if not is_list(overrides_raw):
-                raise ValueError("overrides must be a list")
-            for o in overrides_raw:
-                if not isinstance(o, dict):
-                    raise ValueError("override entries must be objects")
-                desired_overrides.append(Override.load(o))
+        overrides_raw = raw.get("overrides", [])
+        if not is_list(overrides_raw):
+            raise ValueError("overrides must be a list")
+        for entry in overrides_raw:
+            if not isinstance(entry, dict):
+                raise ValueError("override entries must be objects")
 
         return cls(
-            mode=desired_mode,
-            resources=desired_resources,
-            exclude_resources=desired_exclude_resources,
-            overrides=desired_overrides,
-            filter=desired_filter,
+            enable_all_supported=raw.get("enable_all_supported", True),
+            enable_global_resources=raw.get("enable_global", True),
+            exclude_resources=[str(r) for r in exclude_raw],
+            filter=AccountFilter.load(raw.get("filter", {})),
+            mode=mode_raw,
+            overrides=[Override.load(o) for o in overrides_raw],
+            resources=[str(r) for r in resources_raw],
         )
 
 

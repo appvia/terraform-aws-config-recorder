@@ -5,34 +5,6 @@ Utility functions for the AWS Config recorder configurator Lambda function.
 from typing import Any
 
 
-def merge_string_lists(
-    existing: list[str] | None,
-    desired: list[str] | None,
-) -> list[str]:
-    """
-    Merge two string lists while preserving order and removing duplicates.
-    Existing items come first, then any new desired items.
-    """
-
-    existing = existing or []
-    desired = desired or []
-
-    merged: list[str] = []
-    seen: set[str] = set()
-
-    for item in existing:
-        if item not in seen:
-            seen.add(item)
-            merged.append(item)
-
-    for item in desired:
-        if item not in seen:
-            seen.add(item)
-            merged.append(item)
-
-    return merged
-
-
 def is_frequency(value: Any) -> bool:
     """
     Check if a value is a frequency
@@ -44,19 +16,6 @@ def is_frequency(value: Any) -> bool:
         return False
 
     return str(value) in ("CONTINUOUS", "DAILY")
-
-
-def is_boolean(value: Any) -> bool:
-    """
-    Check if a value is a boolean
-
-    Args:
-        value: The value to check
-    """
-    if not isinstance(value, bool):
-        return False
-
-    return True
 
 
 def is_list(value: Any) -> bool:

@@ -9,14 +9,18 @@ variable "config" {
       # Name of the account
       names = list(string)
       # If set, only these regions; if null or [], use var.regions (or Lambda region when var.regions is empty)
-      regions = optional(list(string), null)
+      regions = optional(list(string), [])
     })
+    # Include we set all supported resources in the recorder
+    enable_all_supported = optional(bool, true)
+    # Indicates whether global resources should be recorded
+    enable_global = optional(bool, true)
     # The mode to apply to the recorder (i.e. DAILY or CONTINUOUS)
-    mode = optional(string, null)
+    mode = optional(string, "CONTINUOUS")
     # The resources to include in the recorder
-    resources = optional(list(string), null)
+    resources = optional(list(string), [])
     # The resources to exclude from the recorder
-    exclude_resources = optional(list(string), null)
+    exclude_resources = optional(list(string), [])
     # The overrides to apply to the recorder
     overrides = optional(list(object({
       # A human-readable description of the override
@@ -25,7 +29,7 @@ variable "config" {
       resources = list(string)
       # The type of override to apply (DAILY or CONTINUOUS)
       override_type = string
-    })), null)
+    })), [])
   }))
   default = {}
 }
@@ -109,3 +113,4 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+

@@ -9,7 +9,6 @@ if str(recorder_dir) not in sys.path:
     sys.path.insert(0, str(recorder_dir))
 
 from utils import (
-    is_boolean,
     is_frequency,
     is_list,
     is_string,
@@ -34,20 +33,6 @@ class TestIsFrequency(unittest.TestCase):
         self.assertFalse(is_frequency(1))
         self.assertFalse(is_frequency([]))
         self.assertFalse(is_frequency({}))
-
-
-class TestIsBoolean(unittest.TestCase):
-    def test_true_for_bool_values(self) -> None:
-        self.assertTrue(is_boolean(True))
-        self.assertTrue(is_boolean(False))
-
-    def test_false_for_non_bool_values(self) -> None:
-        self.assertFalse(is_boolean(1))
-        self.assertFalse(is_boolean(0))
-        self.assertFalse(is_boolean("true"))
-        self.assertFalse(is_boolean(None))
-        self.assertFalse(is_boolean([]))
-        self.assertFalse(is_boolean({}))
 
 
 class TestIsList(unittest.TestCase):

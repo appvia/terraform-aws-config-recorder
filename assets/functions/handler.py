@@ -15,7 +15,6 @@ from client import get_config_client
 from config_types import AccountConfig, DesiredConfig
 from logger import logger
 from organizations import list_accounts
-from utils import merge_string_lists
 
 # Initialize the AWS clients
 secretsmanager = boto3.client("secretsmanager")  # pylint: disable=no-member
@@ -45,52 +44,30 @@ def merge_configurations(
     merged = copy.deepcopy(existing)
     # Set the recording frequency in the merged configuration (only if provided)
     recording_mode = merged.setdefault("recordingMode", {})
-    if desired.mode:
-        recording_mode["recordingFrequency"] = desired.mode
-
-    # If the desired configuration has resources, then set the resources in the merged configuration
+    # Set the recording group in the merged configuration
     recording_group = merged.setdefault("recordingGroup", {})
-    if desired.resources and len(desired.resources) > 0:
-        recording_group["resourceTypes"] = merge_string_lists(
-            existing=recording_group.get("resourceTypes"),
-            desired=desired.resources,
-        )
-    else:
-        # Remove all the resources from the merged configuration
-        recording_group["resourceTypes"] = []
-
     # Set the recording strategy in the merged configuration
     recording_strategy = recording_group.setdefault("recordingStrategy", {})
-    exclusion = recording_group.setdefault("exclusionByResourceTypes", {})
+    # Set the exclusion by resource types in the merged configuration
+    exclusion_by_type = recording_group.setdefault("exclusionByResourceTypes", {})
 
-    if desired.exclude_resources and len(desired.exclude_resources) > 0:
-        # Set the recording strategy to exclusion by resource types
-        recording_group["allSupported"] = False
-        # Merge the exclude resources with the existing exclude resources
-        exclusion["resourceTypes"] = merge_string_lists(
-            existing=exclusion.get("resourceTypes"),
-            desired=desired.exclude_resources,
-        )
-        # Set the recording strategy to exclusion by resource types
+    # Set the recording group scope
+    recording_group["allSupported"] = desired.enable_all_supported
+    recording_group["includeGlobalResourceTypes"] = desired.enable_global_resources
+    recording_group["resourceTypes"] = desired.resources
+    # If the desired configuration excludes resources, then set the recording strategy
+    # to exclusion by resource types
+    if len(desired.exclude_resources) > 0:
+        exclusion_by_type["resourceTypes"] = desired.exclude_resources
         recording_strategy["useOnly"] = "EXCLUSION_BY_RESOURCE_TYPES"
     else:
-        # Reset the recording strategy to all supported resource types
-        recording_group["allSupported"] = True
-        # Reset the include global resource types to true
-        recording_group["includeGlobalResourceTypes"] = False
-        # Reset the exclusion by resource types to an empty list
-        exclusion["resourceTypes"] = []
-        # Reset the recording strategy to all supported resource types
+        exclusion_by_type["resourceTypes"] = []
         recording_strategy["useOnly"] = "ALL_SUPPORTED_RESOURCE_TYPES"
 
-    # If we have overrides, then set the overrides in the merged configuration
-    if desired.overrides and len(desired.overrides) > 0:
-        recording_mode_overrides = recording_mode["recordingModeOverrides"] = []
-        for override in desired.overrides:
-            recording_mode_overrides.append(override.get_override())
-    else:
-        # Remove all the recording mode overrides
-        recording_mode["recordingModeOverrides"] = []
+    # Set the recording mode (frequency only when provided)
+    if desired.mode is not None:
+        recording_mode["recordingFrequency"] = desired.mode
+    recording_mode["recordingModeOverrides"] = desired.get_overrides()
 
     # Check if the merged configuration is different from the existing configuration
     changed = merged != existing
