@@ -43,7 +43,8 @@ data "aws_iam_policy_document" "lambda_policy" {
   }
 
   # Lambda code (assets/functions/client.py) always passes AssumeRole Policy:
-  # an inline session policy limiting assumed credentials to Config recorder APIs.
+  # an inline session policy limiting assumed credentials to Config recorder APIs
+  # plus iam:PassRole on the target account's AWSServiceRoleForConfig only.
   statement {
     sid    = "AssumeControlTowerExecutionRole"
     effect = "Allow"

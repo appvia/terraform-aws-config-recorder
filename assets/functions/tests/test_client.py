@@ -71,17 +71,19 @@ class TestGetConfigClient(unittest.TestCase):
         self.assertEqual(kwargs["RoleSessionName"], "ConfigRecorderConfigurator")
         self.assertIn("Policy", kwargs)
 
-        self.assertEqual(
-            kwargs["Policy"],
-            json.dumps(self.client.CONTROL_TOWER_CONFIG_RECORDER_SESSION_POLICY),
+        expected_policy = self.client._control_tower_config_recorder_session_policy(
+            "123456789012"
         )
+        self.assertEqual(kwargs["Policy"], json.dumps(expected_policy))
 
         policy = json.loads(kwargs["Policy"])
-        statement = policy["Statement"][0]
-        self.assertEqual(statement["Effect"], "Allow")
-        self.assertEqual(statement["Resource"], "*")
+        self.assertEqual(len(policy["Statement"]), 2)
+
+        config_stmt = policy["Statement"][0]
+        self.assertEqual(config_stmt["Effect"], "Allow")
+        self.assertEqual(config_stmt["Resource"], "*")
         self.assertCountEqual(
-            statement["Action"],
+            config_stmt["Action"],
             [
                 "config:DescribeConfigurationRecorders",
                 "config:DescribeConfigurationRecorderStatus",
@@ -89,8 +91,22 @@ class TestGetConfigClient(unittest.TestCase):
             ],
         )
 
-    def test_session_policy_constant_is_non_empty_document(self) -> None:
-        doc = self.client.CONTROL_TOWER_CONFIG_RECORDER_SESSION_POLICY
+        pass_stmt = policy["Statement"][1]
+        self.assertEqual(pass_stmt["Sid"], "PassConfigServiceLinkedRole")
+        self.assertEqual(pass_stmt["Action"], "iam:PassRole")
+        self.assertEqual(
+            pass_stmt["Resource"],
+            "arn:aws:iam::123456789012:role/aws-service-role/"
+            "config.amazonaws.com/AWSServiceRoleForConfig",
+        )
+
+    def test_session_policy_includes_pass_role_for_target_account(self) -> None:
+        doc = self.client._control_tower_config_recorder_session_policy("999988887777")
         self.assertEqual(doc.get("Version"), "2012-10-17")
         self.assertIsInstance(doc.get("Statement"), list)
-        self.assertGreaterEqual(len(doc["Statement"]), 1)
+        self.assertEqual(len(doc["Statement"]), 2)
+        self.assertEqual(
+            doc["Statement"][1]["Resource"],
+            "arn:aws:iam::999988887777:role/aws-service-role/"
+            "config.amazonaws.com/AWSServiceRoleForConfig",
+        )

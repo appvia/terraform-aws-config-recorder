@@ -11,35 +11,51 @@ from logger import logger
 # Initialize the AWS clients
 sts = boto3.client("sts")
 
-# Inline session policy for every sts:AssumeRole into AWSControlTowerExecution.
-# Passed as AssumeRole Policy (not an IAM role policy); AWS intersects this with
-# the role's permissions, so this only reduces what the session can do.
-CONTROL_TOWER_CONFIG_RECORDER_SESSION_POLICY: dict[str, Any] = {
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Sid": "RestrictToConfigRecorderOps",
-            "Effect": "Allow",
-            "Action": [
-                "config:DescribeConfigurationRecorders",
-                "config:DescribeConfigurationRecorderStatus",
-                "config:PutConfigurationRecorder",
-            ],
-            "Resource": "*",
-        }
-    ],
-}
+
+def _control_tower_config_recorder_session_policy(account_id: str) -> dict[str, Any]:
+    """
+    Inline session policy for sts:AssumeRole into AWSControlTowerExecution.
+
+    PutConfigurationRecorder requires iam:PassRole on the Config service-linked
+    role; the session policy must allow that in addition to Config APIs or AWS
+    denies PassRole even when the execution role grants it.
+    """
+    config_slr_arn = (
+        f"arn:aws:iam::{account_id}:role/aws-service-role/"
+        "config.amazonaws.com/AWSServiceRoleForConfig"
+    )
+    return {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "RestrictToConfigRecorderOps",
+                "Effect": "Allow",
+                "Action": [
+                    "config:DescribeConfigurationRecorders",
+                    "config:DescribeConfigurationRecorderStatus",
+                    "config:PutConfigurationRecorder",
+                ],
+                "Resource": "*",
+            },
+            {
+                "Sid": "PassConfigServiceLinkedRole",
+                "Effect": "Allow",
+                "Action": "iam:PassRole",
+                "Resource": config_slr_arn,
+            },
+        ],
+    }
 
 
-def _assume_control_tower_execution_role(role_arn: str) -> dict[str, Any]:
+def _assume_control_tower_execution_role(role_arn: str, account_id: str) -> dict[str, Any]:
     """
     Assume the Control Tower execution role with a mandatory inline session policy.
 
     The Policy argument is always set so temporary credentials cannot exceed the
-    Config recorder actions declared in CONTROL_TOWER_CONFIG_RECORDER_SESSION_POLICY.
+    actions declared in _control_tower_config_recorder_session_policy.
     """
 
-    policy = json.dumps(CONTROL_TOWER_CONFIG_RECORDER_SESSION_POLICY)
+    policy = json.dumps(_control_tower_config_recorder_session_policy(account_id))
     return sts.assume_role(
         RoleArn=role_arn,
         RoleSessionName="ConfigRecorderConfigurator",
@@ -78,7 +94,7 @@ def get_config_client(
         },
     )
 
-    response = _assume_control_tower_execution_role(role_arn)
+    response = _assume_control_tower_execution_role(role_arn, account_id)
 
     return boto3.client(
         "config",
