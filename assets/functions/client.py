@@ -47,7 +47,9 @@ def _control_tower_config_recorder_session_policy(account_id: str) -> dict[str, 
     }
 
 
-def _assume_control_tower_execution_role(role_arn: str, account_id: str) -> dict[str, Any]:
+def _assume_control_tower_execution_role(
+    role_arn: str, account_id: str
+) -> dict[str, Any]:
     """
     Assume the Control Tower execution role with a mandatory inline session policy.
 

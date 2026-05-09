@@ -55,7 +55,7 @@ def merge_configurations(
             existing=recording_group.get("resourceTypes"),
             desired=desired.resources,
         )
-    
+
     # Set the recording strategy in the merged configuration
     recording_strategy = recording_group.setdefault("recordingStrategy", {})
 
