@@ -317,6 +317,7 @@ class TestMergeConfigurations(unittest.TestCase):
         existing = {
             "recordingGroup": {
                 "allSupported": True,
+                "includeGlobalResourceTypes": False,
                 "resourceTypes": [],
                 "exclusionByResourceTypes": {"resourceTypes": []},
                 "recordingStrategy": {"useOnly": "ALL_SUPPORTED_RESOURCE_TYPES"},
@@ -393,6 +394,7 @@ class TestMergeConfigurations(unittest.TestCase):
             "ALL_SUPPORTED_RESOURCE_TYPES",
         )
         self.assertIs(merged["recordingGroup"]["allSupported"], True)
+        self.assertIs(merged["recordingGroup"]["includeGlobalResourceTypes"], False)
 
     def test_merge_configuration_exclude_resources_sets_recording_strategy_exclusion(
         self,
@@ -444,6 +446,7 @@ class TestMergeConfigurations(unittest.TestCase):
             "ALL_SUPPORTED_RESOURCE_TYPES",
         )
         self.assertIs(merged["recordingGroup"]["allSupported"], True)
+        self.assertIs(merged["recordingGroup"]["includeGlobalResourceTypes"], False)
         self.assertEqual(
             merged["recordingGroup"]["exclusionByResourceTypes"]["resourceTypes"],
             [],

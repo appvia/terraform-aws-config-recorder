@@ -76,6 +76,8 @@ def merge_configurations(
     else:
         # Reset the recording strategy to all supported resource types
         recording_group["allSupported"] = True
+        # Reset the include global resource types to true
+        recording_group["includeGlobalResourceTypes"] = False
         # Reset the exclusion by resource types to an empty list
         exclusion["resourceTypes"] = []
         # Reset the recording strategy to all supported resource types
