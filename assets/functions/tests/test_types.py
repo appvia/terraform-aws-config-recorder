@@ -83,7 +83,9 @@ class TestAccountFilter(unittest.TestCase):
 
     def test_account_filter_multiple_names(self) -> None:
         t = _load_recorder_config_types_module()
-        f = t.AccountFilter.load({"names": ["Dev", "Staging"], "regions": ["eu-west-2"]})
+        f = t.AccountFilter.load(
+            {"names": ["Dev", "Staging"], "regions": ["eu-west-2"]}
+        )
         self.assertEqual(f.names, ["Dev", "Staging"])
         self.assertEqual(f.regions, ["eu-west-2"])
 

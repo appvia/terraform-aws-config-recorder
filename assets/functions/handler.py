@@ -241,7 +241,9 @@ def lambda_handler(event: dict[str, Any], _: Any) -> dict[str, Any]:
         regions = [str(r).strip() for r in regions_raw]
     else:
         regions = [
-            r.strip() for r in os.environ.get("RECORDER_REGIONS", "").split(",") if r.strip()
+            r.strip()
+            for r in os.environ.get("RECORDER_REGIONS", "").split(",")
+            if r.strip()
         ]
     if not regions:
         fallback = os.environ.get("AWS_REGION", "").strip()
