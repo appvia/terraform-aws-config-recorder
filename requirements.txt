@@ -1,0 +1,6 @@
+# Lambda handler (local tests; AWS Lambda Python runtimes ship boto3, but pinning keeps local/CI aligned)
+boto3>=1.35.0
+
+# Makefile targets: python-lint, format-python
+black>=24.10.0
+pylint>=3.3.0
