@@ -1,4 +1,4 @@
-## terraform-aws-config-recorder
+# Terraform AWS Config Recorder
 
 ### Introduction
 AWS Control Tower establishes an AWS Config baseline in enrolled accounts (including creating/enabling a configuration recorder), but it **does not provide a central way to consistently configure that recorder across accounts**.
