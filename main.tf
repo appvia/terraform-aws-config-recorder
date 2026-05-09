@@ -31,8 +31,6 @@ data "aws_iam_policy_document" "lambda_policy" {
       "config:DescribeConfigurationRecorders",
       "config:DescribeConfigurationRecorderStatus",
       "config:PutConfigurationRecorder",
-      "config:StartConfigurationRecorder",
-      "config:StopConfigurationRecorder",
     ]
     resources = ["*"]
   }
