@@ -108,6 +108,7 @@ class TestMergeConfigurations(unittest.TestCase):
             merged["recordingGroup"]["recordingStrategy"]["useOnly"],
             "EXCLUSION_BY_RESOURCE_TYPES",
         )
+        self.assertIs(merged["recordingGroup"]["allSupported"], True)
         self.assertEqual(
             existing,
             {
@@ -174,6 +175,7 @@ class TestMergeConfigurations(unittest.TestCase):
             merged["recordingGroup"]["recordingStrategy"]["useOnly"],
             "EXCLUSION_BY_RESOURCE_TYPES",
         )
+        self.assertIs(merged["recordingGroup"]["allSupported"], True)
         self.assertEqual(
             merged["recordingMode"]["recordingModeOverrides"],
             [
@@ -220,6 +222,7 @@ class TestMergeConfigurations(unittest.TestCase):
             merged["recordingGroup"]["recordingStrategy"]["useOnly"],
             "EXCLUSION_BY_RESOURCE_TYPES",
         )
+        self.assertIs(merged["recordingGroup"]["allSupported"], True)
         self.assertEqual(
             merged["recordingMode"]["recordingModeOverrides"],
             [
@@ -284,6 +287,7 @@ class TestMergeConfigurations(unittest.TestCase):
         )
         existing = {
             "recordingGroup": {
+                "allSupported": True,
                 "resourceTypes": ["AWS::S3::Bucket"],
                 "exclusionByResourceTypes": {"resourceTypes": ["AWS::KMS::Key"]},
                 "recordingStrategy": {"useOnly": "EXCLUSION_BY_RESOURCE_TYPES"},
@@ -312,6 +316,7 @@ class TestMergeConfigurations(unittest.TestCase):
         )
         existing = {
             "recordingGroup": {
+                "allSupported": False,
                 "resourceTypes": [],
                 "exclusionByResourceTypes": {"resourceTypes": []},
                 "recordingStrategy": {"useOnly": "ALL_SUPPORTED_RESOURCE_TYPES"},
@@ -387,6 +392,7 @@ class TestMergeConfigurations(unittest.TestCase):
             merged["recordingGroup"]["recordingStrategy"]["useOnly"],
             "ALL_SUPPORTED_RESOURCE_TYPES",
         )
+        self.assertIs(merged["recordingGroup"]["allSupported"], False)
 
     def test_merge_configuration_exclude_resources_sets_recording_strategy_exclusion(
         self,
@@ -409,6 +415,7 @@ class TestMergeConfigurations(unittest.TestCase):
             merged["recordingGroup"]["recordingStrategy"]["useOnly"],
             "EXCLUSION_BY_RESOURCE_TYPES",
         )
+        self.assertIs(merged["recordingGroup"]["allSupported"], True)
         self.assertEqual(
             merged["recordingGroup"]["exclusionByResourceTypes"]["resourceTypes"],
             ["AWS::IAM::Role"],
@@ -436,6 +443,7 @@ class TestMergeConfigurations(unittest.TestCase):
             merged["recordingGroup"]["recordingStrategy"]["useOnly"],
             "ALL_SUPPORTED_RESOURCE_TYPES",
         )
+        self.assertIs(merged["recordingGroup"]["allSupported"], False)
         self.assertEqual(
             merged["recordingGroup"]["exclusionByResourceTypes"]["resourceTypes"],
             [],
