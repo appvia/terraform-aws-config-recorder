@@ -12,13 +12,14 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
-.PHONY: all security lint format documentation documentation-examples validate-all validate validate-examples init examples tests
+.PHONY: all security lint format documentation documentation-examples validate-all validate validate-examples init examples tests python-test
 
 default: all
 
 all:
 	$(MAKE) init
 	$(MAKE) validate
+	$(MAKE) python-test
 	$(MAKE) tests
 	$(MAKE) lint
 	$(MAKE) security
@@ -27,6 +28,7 @@ all:
 
 examples:
 	$(MAKE) validate-examples
+	$(MAKE) python-test
 	$(MAKE) tests
 	$(MAKE) lint-examples
 	$(MAKE) lint
@@ -97,9 +99,18 @@ security-examples:
 		trivy config  --format table --exit-code  1 --severity  CRITICAL,HIGH --ignorefile .trivyignore $$dir; \
 	done;
 
-tests:
+tests: init
 	@echo "--> Running Terraform Tests"
 	@terraform test
+
+python-test:
+	@echo "--> Running Python unit tests"
+	@cd assets/functions && python3 -m unittest discover -s tests -t . -v
+
+python-lint:
+	@echo "--> Running Python lint"
+	@cd assets/functions && pylint --ignore=tests .
+	@cd assets/functions && pylint --disable=missing-class-docstring,protected-access,line-too-long tests
 
 validate:
 	@echo "--> Running terraform validate"
@@ -136,11 +147,11 @@ lint:
 	@tflint -f compact
 	$(MAKE) lint-modules
 	$(MAKE) lint-examples
-	$(MAKE) lint-actions
+	$(MAKE) python-lint
 
 lint-modules:
 	@echo "--> Running tflint on modules"
-	@find . -type d -depth 2 -regex '.*/modules/[a-zA-Z\_]*' -not -path '*.terraform*' 2>/dev/null | while read -r dir; do \
+	@find . -type d -regex '.*/modules/[a-zA-Z\-_$$]*' -not -path '*.terraform*' 2>/dev/null | while read -r dir; do \
 		echo "--> Linting $$dir"; \
 		tflint --chdir=$$dir --init; \
 		tflint --chdir=$$dir -f compact; \
@@ -154,14 +165,17 @@ lint-examples:
 		tflint --chdir=$$dir -f compact; \
 	done;
 
-lint-actions:
-	@echo "--> Running Linting on GitHub Actions"
-	@command -v actionlint >/dev/null 2>&1 || { echo "actionlint is not installed. Please install the binary'"; exit 1; }
-	@actionlint .github/workflows/*.yml
-
 format:
+	$(MAKE) format-terraform
+	$(MAKE) format-python
+
+format-terraform:
 	@echo "--> Running terraform fmt"
 	@terraform fmt -recursive -write=true
+
+format-python:
+	@echo "--> Running black formatting on Python code"
+	@cd assets/functions && black .
 
 clean:
 	@echo "--> Cleaning up"
