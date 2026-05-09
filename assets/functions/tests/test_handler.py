@@ -288,7 +288,10 @@ class TestMergeConfigurations(unittest.TestCase):
                 "exclusionByResourceTypes": {"resourceTypes": ["AWS::KMS::Key"]},
                 "recordingStrategy": {"useOnly": "EXCLUSION_BY_RESOURCE_TYPES"},
             },
-            "recordingMode": {"recordingFrequency": "DAILY"},
+            "recordingMode": {
+                "recordingFrequency": "DAILY",
+                "recordingModeOverrides": [],
+            },
         }
 
         changed, merged = self.handler.merge_configurations(desired, existing)
@@ -309,6 +312,8 @@ class TestMergeConfigurations(unittest.TestCase):
         )
         existing = {
             "recordingGroup": {
+                "resourceTypes": [],
+                "exclusionByResourceTypes": {"resourceTypes": []},
                 "recordingStrategy": {"useOnly": "ALL_SUPPORTED_RESOURCE_TYPES"},
             },
             "recordingMode": {
@@ -364,7 +369,7 @@ class TestMergeConfigurations(unittest.TestCase):
             "CONTINUOUS",
         )
 
-    def test_merge_configuration_does_not_override_resources_when_not_provided(
+    def test_merge_configuration_resets_resources_when_not_provided(
         self,
     ) -> None:
         desired = self.config_types.DesiredConfig(mode="DAILY", resources=[])
@@ -377,7 +382,7 @@ class TestMergeConfigurations(unittest.TestCase):
 
         self.assertIs(changed, True)
         self.assertEqual(merged["recordingMode"]["recordingFrequency"], "DAILY")
-        self.assertEqual(merged["recordingGroup"]["resourceTypes"], ["AWS::S3::Bucket"])
+        self.assertEqual(merged["recordingGroup"]["resourceTypes"], [])
         self.assertEqual(
             merged["recordingGroup"]["recordingStrategy"]["useOnly"],
             "ALL_SUPPORTED_RESOURCE_TYPES",
@@ -430,6 +435,10 @@ class TestMergeConfigurations(unittest.TestCase):
         self.assertEqual(
             merged["recordingGroup"]["recordingStrategy"]["useOnly"],
             "ALL_SUPPORTED_RESOURCE_TYPES",
+        )
+        self.assertEqual(
+            merged["recordingGroup"]["exclusionByResourceTypes"]["resourceTypes"],
+            [],
         )
 
 

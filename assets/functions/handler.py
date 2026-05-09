@@ -55,6 +55,9 @@ def merge_configurations(
             existing=recording_group.get("resourceTypes"),
             desired=desired.resources,
         )
+    else:
+        # Remove all the resources from the merged configuration
+        recording_group["resourceTypes"] = []
 
     # Set the recording strategy in the merged configuration
     recording_strategy = recording_group.setdefault("recordingStrategy", {})
@@ -67,6 +70,8 @@ def merge_configurations(
         )
         recording_strategy["useOnly"] = "EXCLUSION_BY_RESOURCE_TYPES"
     else:
+        exclusion = recording_group.setdefault("exclusionByResourceTypes", {})
+        exclusion["resourceTypes"] = []
         recording_strategy["useOnly"] = "ALL_SUPPORTED_RESOURCE_TYPES"
 
     # If we have overrides, then set the overrides in the merged configuration
@@ -74,6 +79,9 @@ def merge_configurations(
         recording_mode_overrides = recording_mode["recordingModeOverrides"] = []
         for override in desired.overrides:
             recording_mode_overrides.append(override.get_override())
+    else:
+        # Remove all the recording mode overrides
+        recording_mode["recordingModeOverrides"] = []
 
     # Check if the merged configuration is different from the existing configuration
     changed = merged != existing
