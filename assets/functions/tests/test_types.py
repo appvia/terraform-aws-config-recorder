@@ -67,24 +67,37 @@ class TestAccountFilter(unittest.TestCase):
     def test_account_filter_regions_null_or_missing_uses_empty_list(self) -> None:
         t = _load_recorder_config_types_module()
         for raw in (
-            {"name": "Dev", "regions": None},
-            {"name": "Dev"},
+            {"names": ["Dev"], "regions": None},
+            {"names": ["Dev"]},
         ):
             with self.subTest(raw=raw):
                 f = t.AccountFilter.load(raw)
-                self.assertEqual(f.name, "Dev")
+                self.assertEqual(f.names, ["Dev"])
                 self.assertEqual(f.regions, [])
 
     def test_account_filter_regions_empty_list(self) -> None:
         t = _load_recorder_config_types_module()
-        f = t.AccountFilter.load({"name": "Dev", "regions": []})
-        self.assertEqual(f.name, "Dev")
+        f = t.AccountFilter.load({"names": ["Dev"], "regions": []})
+        self.assertEqual(f.names, ["Dev"])
         self.assertEqual(f.regions, [])
+
+    def test_account_filter_multiple_names(self) -> None:
+        t = _load_recorder_config_types_module()
+        f = t.AccountFilter.load({"names": ["Dev", "Staging"], "regions": ["eu-west-2"]})
+        self.assertEqual(f.names, ["Dev", "Staging"])
+        self.assertEqual(f.regions, ["eu-west-2"])
+
+    def test_account_filter_names_invalid_type_raises(self) -> None:
+        t = _load_recorder_config_types_module()
+        with self.assertRaisesRegex(ValueError, "names must be a list of strings"):
+            t.AccountFilter.load({"names": "Dev", "regions": []})
+        with self.assertRaisesRegex(ValueError, "names must be a list of strings"):
+            t.AccountFilter.load({"regions": []})
 
     def test_account_filter_regions_invalid_type_raises(self) -> None:
         t = _load_recorder_config_types_module()
         with self.assertRaisesRegex(ValueError, "regions must be a list of strings"):
-            t.AccountFilter.load({"name": "Dev", "regions": "eu-west-2"})
+            t.AccountFilter.load({"names": ["Dev"], "regions": "eu-west-2"})
 
 
 class TestDesiredConfig(unittest.TestCase):
@@ -184,20 +197,20 @@ class TestAccountConfig(unittest.TestCase):
         cfg = t.AccountConfig.load(
             {
                 "dev": {
-                    "filter": {"name": "Dev", "regions": ["eu-west-2"]},
+                    "filter": {"names": ["Dev"], "regions": ["eu-west-2"]},
                     "mode": "DAILY",
                 },
                 "prod": {
-                    "filter": {"name": "Prod", "regions": ["eu-west-2"]},
+                    "filter": {"names": ["Prod"], "regions": ["eu-west-2"]},
                     "resources": ["AWS::S3::Bucket"],
                 },
             }
         )
         self.assertIn("dev", cfg.accounts)
-        self.assertEqual(cfg.accounts["dev"].filter.name, "Dev")
+        self.assertEqual(cfg.accounts["dev"].filter.names, ["Dev"])
         self.assertEqual(cfg.accounts["dev"].mode, "DAILY")
         self.assertIn("prod", cfg.accounts)
-        self.assertEqual(cfg.accounts["prod"].filter.name, "Prod")
+        self.assertEqual(cfg.accounts["prod"].filter.names, ["Prod"])
         self.assertEqual(cfg.accounts["prod"].resources, ["AWS::S3::Bucket"])
 
     def test_account_config_load_validation_errors(self) -> None:

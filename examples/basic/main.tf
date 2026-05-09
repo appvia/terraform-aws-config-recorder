@@ -40,7 +40,7 @@ module "config_recorder" {
     devops = {
       filter = {
         # Must match the member account name in AWS Organizations
-        name = "Devops"
+        names = ["Devops", "WayfinderDev"]
       }
       overrides = [
         {

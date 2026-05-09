@@ -7,7 +7,7 @@ variable "config" {
     # The account filter to filter the accounts to apply the configuration to
     filter = object({
       # Name of the account
-      name = string
+      names = list(string)
       # If set, only these regions; if null or [], use var.regions (or Lambda region when var.regions is empty)
       regions = optional(list(string), null)
     })

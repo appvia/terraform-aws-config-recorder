@@ -189,33 +189,6 @@ def get_recorder(
         raise e
 
 
-def _base_regions_from_event_and_env(event: dict[str, Any]) -> list[str]:
-    """
-    Regions from the invocation event or RECORDER_REGIONS (module var.regions).
-    Blank entries are dropped. If nothing remains, fall back to the Lambda
-    runtime region so var.regions = [] matches "current region" behaviour.
-    """
-
-    raw = event.get("regions")
-    parts: list[str]
-    if raw is not None:
-        if isinstance(raw, list):
-            parts = [str(x).strip() for x in raw]
-        else:
-            parts = [p.strip() for p in str(raw).split(",")]
-    else:
-        parts = [p.strip() for p in os.environ.get("RECORDER_REGIONS", "").split(",")]
-
-    regions = [p for p in parts if p]
-    if not regions:
-        fallback = (
-            os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or ""
-        ).strip()
-        if fallback:
-            regions = [fallback]
-    return regions
-
-
 def lambda_response(
     status: Literal["ok", "skipped", "error"],
     recorder_name: str,
@@ -263,7 +236,17 @@ def lambda_handler(event: dict[str, Any], _: Any) -> dict[str, Any]:
         event.get("dry_run")
         or os.environ.get("ENABLE_DRY_MODE", "false").upper() == "TRUE"
     )
-    base_regions = _base_regions_from_event_and_env(event)
+    regions_raw = event.get("regions")
+    if regions_raw:
+        regions = [str(r).strip() for r in regions_raw]
+    else:
+        regions = [
+            r.strip() for r in os.environ.get("RECORDER_REGIONS", "").split(",") if r.strip()
+        ]
+    if not regions:
+        fallback = os.environ.get("AWS_REGION", "").strip()
+        if fallback:
+            regions = [fallback]
 
     # Get the Secret Manager name from the environment variable
     secret_manager_name = os.environ.get("SECRET_MANAGER_NAME", "").strip()
@@ -277,7 +260,7 @@ def lambda_handler(event: dict[str, Any], _: Any) -> dict[str, Any]:
                 "event": event,
                 "log_level": log_level,
                 "recorder_name": recorder_name,
-                "base_regions": base_regions,
+                "regions": regions,
                 "secret_manager_name": secret_manager_name,
             },
         )
@@ -299,101 +282,139 @@ def lambda_handler(event: dict[str, Any], _: Any) -> dict[str, Any]:
         skipped_no_change = False
 
         # Iterate over the accounts and apply the configuration to the recorder
-        for key, desired in desired_config.accounts.items():
-            effective_regions = (
-                list(desired.filter.regions)
-                if desired.filter.regions
-                else list(base_regions)
-            )
-            # Iterate over the regions and apply the configuration to the recorder
-            for region in effective_regions:
-                # If the account is not in the regions, then we skip the configuration
-                # Get the account name from the desired configuration
-                account_name = desired.filter.name
-                # Ensure the account name is set
-                if not account_name:
-                    logger.warning(
-                        "Account name not found, skipping configuration",
-                        extra={
-                            "action": "lambda_handler",
-                            "account_name": account_name,
-                            "region": region,
-                            "account_key": key,
-                        },
-                    )
-                    continue
-
-                logger.info(
-                    "Ensuring recorder configuration is applied to account",
-                    extra={
-                        "action": "lambda_handler",
-                        "account_name": account_name,
-                        "region": region,
-                    },
-                )
-
-                # Get the account from the AWS Organizations API
-                account = accounts.get(account_name)
-                if not account:
-                    logger.warning(
-                        "Account not found, skipping configuration",
-                        extra={
-                            "action": "lambda_handler",
-                            "account_name": account_name,
-                            "region": region,
-                        },
-                    )
-                    continue
-
-                # Assume into the AWSControlTowerExecution role for the account, and
-                # return a config boto3 client
-                config_client = get_config_client(
-                    account_id=account.id,
-                    role_arn=f"arn:aws:iam::{account.id}:role/AWSControlTowerExecution",
-                    region=region,
-                )
-
-                # Get the existing recorder configuration (role ARN, recording status, and configuration)
-                role_arn, recording, configuration = get_recorder(
-                    client=config_client,
-                    recorder_name=recorder_name,
-                )
-                # If the recorder is not recording, then we ignore configuration changes
-                if not recording:
-                    logger.warning(
-                        "Recorder is not recording, ignoring configuration changes",
-                        extra={
-                            "action": "lambda_handler",
-                            "recorder_name": recorder_name,
-                        },
-                    )
-                    logger.warning(
-                        "Recorder is not recording, ignoring configuration changes",
-                        extra={
-                            "action": "lambda_handler",
-                            "account_name": account_name,
-                            "recorder_name": recorder_name,
-                            "region": region,
-                        },
-                    )
-                    skipped_not_recording = True
-                    continue
-
-                # Merge the desired configuration with the current configuration
-                changed, merged = merge_configurations(desired, configuration)
-
-                # If the configuration did not change, then we skip the configuration
-                if not changed:
+        for _, desired in desired_config.accounts.items():
+            for account_name in desired.filter.names:
+                # Get the effective regions to apply the configuration to
+                effective_regions = desired.filter.regions or regions
+                # Iterate over the regions and apply the configuration to the recorder
+                for region in effective_regions:
                     logger.info(
-                        "Configuration did not change, skipping configuration changes",
+                        "Ensuring recorder configuration is applied to account",
                         extra={
                             "action": "lambda_handler",
-                            "recorder_name": recorder_name,
+                            "account_name": account_name,
+                            "region": region,
                         },
                     )
 
+                    # Get the account from the AWS Organizations API
+                    account = accounts.get(account_name)
+                    if not account:
+                        logger.warning(
+                            "Account not found, skipping configuration",
+                            extra={
+                                "action": "lambda_handler",
+                                "account_name": account_name,
+                                "region": region,
+                            },
+                        )
+                        continue
+
+                    # Assume into the AWSControlTowerExecution role for the account, and
+                    # return a config boto3 client
+                    config_client = get_config_client(
+                        account_id=account.id,
+                        role_arn=f"arn:aws:iam::{account.id}:role/AWSControlTowerExecution",
+                        region=region,
+                    )
+
+                    # Get the existing recorder configuration (role ARN, recording status, and configuration)
+                    role_arn, recording, configuration = get_recorder(
+                        client=config_client,
+                        recorder_name=recorder_name,
+                    )
+                    # If the recorder is not recording, then we ignore configuration changes
+                    if not recording:
+                        logger.warning(
+                            "Recorder is not recording, ignoring configuration changes",
+                            extra={
+                                "action": "lambda_handler",
+                                "recorder_name": recorder_name,
+                            },
+                        )
+                        logger.warning(
+                            "Recorder is not recording, ignoring configuration changes",
+                            extra={
+                                "action": "lambda_handler",
+                                "account_name": account_name,
+                                "recorder_name": recorder_name,
+                                "region": region,
+                            },
+                        )
+                        skipped_not_recording = True
+                        continue
+
+                    # Merge the desired configuration with the current configuration
+                    changed, merged = merge_configurations(desired, configuration)
+
+                    # If the configuration did not change, then we skip the configuration
+                    if not changed:
+                        logger.info(
+                            "Configuration did not change, skipping configuration changes",
+                            extra={
+                                "action": "lambda_handler",
+                                "recorder_name": recorder_name,
+                            },
+                        )
+
+                        logger.info(
+                            "Configuration did not change, skipping configuration changes",
+                            extra={
+                                "action": "lambda_handler",
+                                "account_name": account_name,
+                                "recorder_name": recorder_name,
+                                "region": region,
+                            },
+                        )
+
+                        skipped_no_change = True
+                        continue
+
+                    # Apply the recorder configuration
                     logger.info(
-                        "Configuration did not change, skipping configuration changes",
+                        "Changes detected, applying recorder configuration",
+                        extra={
+                            "action": "lambda_handler",
+                            "recorder_name": recorder_name,
+                            "merged": merged,
+                        },
+                    )
+
+                    if not dry_run:
+                        # Put the recorder configuration
+                        config_client.put_configuration_recorder(
+                            ConfigurationRecorder={
+                                "name": recorder_name,
+                                "roleARN": role_arn,
+                                "recordingGroup": merged.get("recordingGroup"),
+                                "recordingMode": merged.get("recordingMode"),
+                            }
+                        )
+                        any_applied = True
+                        logger.info(
+                            "Successfully applied recorder configuration",
+                            extra={
+                                "action": "lambda_handler",
+                                "account_name": account_name,
+                                "dry_run": dry_run,
+                                "recorder_name": recorder_name,
+                                "region": region,
+                            },
+                        )
+                    else:
+                        logger.info(
+                            "Dry run mode enabled, skipping recorder configuration",
+                            extra={
+                                "action": "lambda_handler",
+                                "current": configuration,
+                                "desired": merged,
+                                "recorder_name": recorder_name,
+                                "region": region,
+                            },
+                        )
+
+                    logger.info(
+                        "Successfully applied recorder configuration with region",
                         extra={
                             "action": "lambda_handler",
                             "account_name": account_name,
@@ -401,62 +422,6 @@ def lambda_handler(event: dict[str, Any], _: Any) -> dict[str, Any]:
                             "region": region,
                         },
                     )
-
-                    skipped_no_change = True
-                    continue
-
-                # Apply the recorder configuration
-                logger.info(
-                    "Changes detected, applying recorder configuration",
-                    extra={
-                        "action": "lambda_handler",
-                        "recorder_name": recorder_name,
-                        "merged": merged,
-                    },
-                )
-
-                if not dry_run:
-                    # Put the recorder configuration
-                    config_client.put_configuration_recorder(
-                        ConfigurationRecorder={
-                            "name": recorder_name,
-                            "roleARN": role_arn,
-                            "recordingGroup": merged.get("recordingGroup"),
-                            "recordingMode": merged.get("recordingMode"),
-                        }
-                    )
-                    any_applied = True
-                    logger.info(
-                        "Successfully applied recorder configuration",
-                        extra={
-                            "action": "lambda_handler",
-                            "account_name": account_name,
-                            "dry_run": dry_run,
-                            "recorder_name": recorder_name,
-                            "region": region,
-                        },
-                    )
-                else:
-                    logger.info(
-                        "Dry run mode enabled, skipping recorder configuration",
-                        extra={
-                            "action": "lambda_handler",
-                            "current": configuration,
-                            "desired": merged,
-                            "recorder_name": recorder_name,
-                            "region": region,
-                        },
-                    )
-
-                logger.info(
-                    "Successfully applied recorder configuration with region",
-                    extra={
-                        "action": "lambda_handler",
-                        "account_name": account_name,
-                        "recorder_name": recorder_name,
-                        "region": region,
-                    },
-                )
 
         if any_applied:
             return lambda_response(

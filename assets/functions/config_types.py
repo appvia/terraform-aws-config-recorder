@@ -60,8 +60,8 @@ class Override:
 
 @dataclass
 class AccountFilter:
-    # Name of the account
-    name: str = field(default_factory=str)
+    # Names of the accounts to apply the configuration to
+    names: list[str] = field(default_factory=list)
     # Non-empty: only these regions; empty: use module/env default regions (RECORDER_REGIONS / AWS_REGION)
     regions: list[str] = field(default_factory=list)
 
@@ -82,15 +82,20 @@ class AccountFilter:
         if not isinstance(raw, dict):
             raise ValueError("filter must be an object")
 
+        # Ensure the names is a list of strings
+        names_raw = raw.get("names")
+        if not is_string_list(names_raw):
+            raise ValueError("names must be a list of strings")
+
+        # Ensure the regions is a list of strings
         regions_raw = raw.get("regions")
-        # Omitted or null (e.g. Terraform optional) means use module/event regions
         if regions_raw is None:
             regions_raw = []
         elif not is_string_list(regions_raw):
             raise ValueError("regions must be a list of strings")
 
         return cls(
-            name=str(raw.get("name", "")),
+            names=[str(n) for n in names_raw],
             regions=[str(r) for r in regions_raw],
         )
 

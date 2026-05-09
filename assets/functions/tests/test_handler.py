@@ -436,7 +436,7 @@ class TestLambdaHandler(unittest.TestCase):
         os.environ["SECRET_MANAGER_NAME"] = "desired/config"
 
         desired = __import__("config_types").DesiredConfig.load(
-            {"filter": {"name": "Dev", "regions": ["eu-west-2"]}}
+            {"filter": {"names": ["Dev"], "regions": ["eu-west-2"]}}
         )
         self.handler.load_configuration = MagicMock(
             return_value=__import__("config_types").AccountConfig(
@@ -468,7 +468,7 @@ class TestLambdaHandler(unittest.TestCase):
         os.environ["SECRET_MANAGER_NAME"] = "desired/config"
 
         desired = __import__("config_types").DesiredConfig.load(
-            {"mode": "DAILY", "filter": {"name": "Dev", "regions": ["eu-west-2"]}}
+            {"mode": "DAILY", "filter": {"names": ["Dev"], "regions": ["eu-west-2"]}}
         )
         self.handler.load_configuration = MagicMock(
             return_value=__import__("config_types").AccountConfig(
@@ -505,8 +505,8 @@ class TestLambdaHandler(unittest.TestCase):
 
         cfg = __import__("config_types")
         for filter_payload in (
-            {"name": "Dev", "regions": None},
-            {"name": "Dev", "regions": []},
+            {"names": ["Dev"], "regions": None},
+            {"names": ["Dev"], "regions": []},
         ):
             with self.subTest(filter_payload=filter_payload):
                 desired = cfg.DesiredConfig.load({"filter": filter_payload})
@@ -547,9 +547,9 @@ class TestLambdaHandler(unittest.TestCase):
 
         cfg = __import__("config_types")
         first = cfg.DesiredConfig.load(
-            {"filter": {"name": "Dev", "regions": ["eu-west-2"]}}
+            {"filter": {"names": ["Dev"], "regions": ["eu-west-2"]}}
         )
-        second = cfg.DesiredConfig.load({"filter": {"name": "Prod"}})
+        second = cfg.DesiredConfig.load({"filter": {"names": ["Prod"]}})
 
         self.handler.load_configuration = MagicMock(
             return_value=cfg.AccountConfig(accounts={"dev": first, "prod": second})
@@ -591,7 +591,7 @@ class TestLambdaHandler(unittest.TestCase):
         os.environ["AWS_REGION"] = "ap-southeast-1"
 
         cfg = __import__("config_types")
-        desired = cfg.DesiredConfig.load({"filter": {"name": "Dev"}})
+        desired = cfg.DesiredConfig.load({"filter": {"names": ["Dev"]}})
 
         self.handler.load_configuration = MagicMock(
             return_value=cfg.AccountConfig(accounts={"dev": desired})
@@ -629,7 +629,7 @@ class TestLambdaHandler(unittest.TestCase):
             {
                 "mode": "DAILY",
                 "resources": ["AWS::S3::Bucket"],
-                "filter": {"name": "Dev", "regions": ["eu-west-2"]},
+                "filter": {"names": ["Dev"], "regions": ["eu-west-2"]},
             }
         )
         self.handler.load_configuration = MagicMock(
@@ -672,7 +672,7 @@ class TestLambdaHandler(unittest.TestCase):
         os.environ["SECRET_MANAGER_NAME"] = "desired/config"
 
         desired = __import__("config_types").DesiredConfig.load(
-            {"mode": "DAILY", "filter": {"name": "Dev", "regions": ["eu-west-2"]}}
+            {"mode": "DAILY", "filter": {"names": ["Dev"], "regions": ["eu-west-2"]}}
         )
         self.handler.load_configuration = MagicMock(
             return_value=__import__("config_types").AccountConfig(

@@ -8,7 +8,7 @@ locals {
 
 ## Create the Secret Manager secret for the recorder configuration
 resource "aws_secretsmanager_secret" "config" {
-  name                    = var.secret_manager_name
+  name_prefix             = format("%s-", var.secret_manager_name)
   description             = "The desired recorder configuration for the AWS Config recorder"
   recovery_window_in_days = 7
   tags                    = merge(var.tags, { "Name" = var.secret_manager_name })
@@ -87,7 +87,7 @@ module "lambda" {
     LOG_LEVEL           = var.enable_debug ? "DEBUG" : "INFO"
     RECORDER_NAME       = var.recorder_name
     RECORDER_REGIONS    = join(",", var.regions)
-    SECRET_MANAGER_NAME = var.secret_manager_name
+    SECRET_MANAGER_NAME = aws_secretsmanager_secret.config.name
   }
 
   ## Lambda Role
