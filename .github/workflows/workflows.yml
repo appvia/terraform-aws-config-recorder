@@ -1,0 +1,21 @@
+---
+name: Workflow Validation
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/**"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/**"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-workflows:
+    uses: appvia/appvia-cicd-workflows/.github/workflows/github-workflow-validation.yml@77a6eddfb738cffd292a211ccde1cb298642370c # main
+    name: Validate GitHub Workflows
