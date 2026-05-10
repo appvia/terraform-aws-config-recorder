@@ -122,7 +122,9 @@ class TestMergeConfigurations(unittest.TestCase):
             },
         )
 
-    def test_merge_configuration_replaces_resources_exclusions_and_overrides(self) -> None:
+    def test_merge_configuration_replaces_resources_exclusions_and_overrides(
+        self,
+    ) -> None:
         """Desired lists and overrides replace the corresponding existing fields entirely."""
         desired = self.config_types.DesiredConfig(
             mode=None,
