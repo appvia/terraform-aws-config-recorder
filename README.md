@@ -185,6 +185,7 @@ Use multiple entries in `filter.names` when the same mode, resource lists, and o
 | <a name="input_secret_manager_name"></a> [secret\_manager\_name](#input\_secret\_manager\_name) | Name of the Secrets Manager secret that stores the recorder configuration JSON | `string` | `"/lz/aws-config/config"` | no |
 | <a name="input_sns_topic_arn"></a> [sns\_topic\_arn](#input\_sns\_topic\_arn) | Optional SNS topic ARN to notify when the Lambda alarm fires | `string` | `null` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | A collection of tags to apply to resources | `map(string)` | `{}` | no |
+| <a name="input_trigger_on_package_timestamp"></a> [trigger\_on\_package\_timestamp](#input\_trigger\_on\_package\_timestamp) | Whether to trigger the Lambda on the package timestamp | `bool` | `false` | no |
 
 ## Outputs
 

@@ -114,3 +114,8 @@ variable "tags" {
   default     = {}
 }
 
+variable "trigger_on_package_timestamp" {
+  description = "Whether to trigger the Lambda on the package timestamp"
+  type        = bool
+  default     = false
+}

@@ -62,15 +62,16 @@ module "lambda" {
   source  = "terraform-aws-modules/lambda/aws"
   version = "8.8.0"
 
-  architectures = ["arm64"]
-  function_name = var.name
-  memory_size   = var.lambda_memory_size
-  function_tags = var.tags
-  description   = "Used to configure the pre-existing AWS Config configuration recorder (e.g. Control Tower baseline)"
-  handler       = "handler.lambda_handler"
-  runtime       = var.lambda_runtime
-  timeout       = var.lambda_timeout
-  tags          = var.tags
+  architectures                = ["arm64"]
+  function_name                = var.name
+  memory_size                  = var.lambda_memory_size
+  function_tags                = var.tags
+  description                  = "Used to configure the pre-existing AWS Config configuration recorder (e.g. Control Tower baseline)"
+  handler                      = "handler.lambda_handler"
+  runtime                      = var.lambda_runtime
+  timeout                      = var.lambda_timeout
+  tags                         = var.tags
+  trigger_on_package_timestamp = var.trigger_on_package_timestamp
 
   source_path = [
     {
