@@ -60,7 +60,7 @@ data "aws_iam_policy_document" "lambda_policy" {
 ## Lambda function for AWS Config recorder configuration
 module "lambda" {
   source  = "terraform-aws-modules/lambda/aws"
-  version = "8.8.0"
+  version = "8.9.0"
 
   architectures                = ["arm64"]
   function_name                = var.name
